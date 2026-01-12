@@ -1,49 +1,72 @@
-/**
- * Command: help
- * Description: Shows all available commands in a royal embed.
- */
-
 const { EmbedBuilder } = require("discord.js");
-const { logError } = require("../../utils/logger");
 
 module.exports = {
   name: "menu",
-  description: "Shows the royal command menu.",
+  aliases: ["help"],
 
-  execute(message) {
-    try {
-      const prefix = process.env.DISCORD_BOT_PREFIX || ".";
+  async execute(message) {
+    const prefix = process.env.DISCORD_BOT_PREFIX || ".";
 
-      // Collect commands
-      const commands = message.client.commands
-        .filter((cmd) => cmd.name && cmd.description)
-        .map(
-          (cmd) =>
-            `👑 **${prefix}${cmd.name}**\n└─ ${cmd.description}`
-        );
-
-      if (!commands.length) {
-        return message.reply("❌ No commands are currently available.");
-      }
-
-      // Royal Embed
-      const embed = new EmbedBuilder()
-        .setColor(0x2b6cb0) // Royal blue
-        .setTitle("👑 M.B.B Royal Command Menu")
-        .setDescription(
-          "Welcome to the **royal command list**.\nUse the commands below wisely 👑\n\n" +
-            commands.join("\n\n")
-        )
-        .setFooter({
-          text: "👑 M.B.B • Royal Assistant",
-          iconURL: message.client.user.displayAvatarURL(),
-        })
-        .setTimestamp();
-
-      message.reply({ embeds: [embed] });
-    } catch (error) {
-      logError(`❌ Error executing help command: ${error}`);
-      message.reply("❌ An error occurred while showing the help menu.");
+    const cmds = message.client.prefixCommands;
+    if (!cmds || cmds.size === 0) {
+      return message.reply("❌ Commands not loaded.");
     }
+
+    // Remove alias duplicates
+    const unique = new Map();
+    for (const cmd of cmds.values()) {
+      unique.set(cmd.name, cmd);
+    }
+
+    // Categories (auto-detect by name)
+    const categories = {
+      "💰 Economy": [],
+      "🎮 Fun": [],
+      "⚙️ Utility": [],
+      "👮 Moderation": [],
+    };
+
+    for (const cmd of unique.values()) {
+      const name = cmd.name;
+
+      if (
+        ["balance", "bank", "deposit", "withdraw", "rob", "work", "daily", "shop", "buy", "inventory", "leaderboard"].includes(name)
+      ) {
+        categories["💰 Economy"].push(name);
+      } else if (
+        ["slap", "say", "gamble"].includes(name)
+      ) {
+        categories["🎮 Fun"].push(name);
+      } else if (
+        ["ping", "info", "server", "user", "profile", "menu"].includes(name)
+      ) {
+        categories["⚙️ Utility"].push(name);
+      } else {
+        categories["👮 Moderation"].push(name);
+      }
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle("👑 M.B.B Command Menu")
+      .setDescription(
+        `Use **${prefix}<command>** to run a command\n\n✨ *Clean • Organized • Royal*`
+      )
+      .setColor(0x5865f2)
+      .setThumbnail(message.client.user.displayAvatarURL())
+      .setFooter({
+        text: `Prefix: ${prefix} • M.B.B`,
+      })
+      .setTimestamp();
+
+    for (const [cat, list] of Object.entries(categories)) {
+      if (list.length === 0) continue;
+
+      embed.addFields({
+        name: cat,
+        value: list.map(c => `\`${prefix}${c}\``).join("  "),
+      });
+    }
+
+    await message.channel.send({ embeds: [embed] });
   },
-}; 
+};
