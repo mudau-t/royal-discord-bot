@@ -4,10 +4,11 @@ const { Client, Collection, GatewayIntentBits } = require("discord.js");
 const dotenv = require("dotenv");
 const { logInfo, logWarn, logError } = require("./utils/logger");
 
-// Load environment variables
 dotenv.config();
 
-// Initialize Discord Client
+/* =========================
+   🤖 DISCORD CLIENT
+========================= */
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -18,14 +19,16 @@ const client = new Client({
   ],
 });
 
-// Collection to store commands
-client.commands = new Collection();
+/* =========================
+   📦 COMMAND COLLECTIONS
+========================= */
+client.prefixCommands = new Collection();   // REQUIRED
+client.slashCommands = new Collection();
+client.contextCommands = new Collection();
 
-/**
- * =========================
- * 📌 LOAD PREFIX COMMANDS (RECURSIVE ✅)
- * =========================
- */
+/* =========================
+   📌 LOAD PREFIX COMMANDS
+========================= */
 const prefixCommandsPath = path.join(__dirname, "commands/prefix");
 
 function loadPrefixCommands(folderPath) {
@@ -35,87 +38,92 @@ function loadPrefixCommands(folderPath) {
     const fullPath = path.join(folderPath, file);
 
     if (fs.statSync(fullPath).isDirectory()) {
-      // 🔁 Go inside subfolders (IMPORTANT)
       loadPrefixCommands(fullPath);
-    } else if (file.endsWith(".js")) {
-      const command = require(fullPath);
+      continue;
+    }
 
-      if (command.name && typeof command.execute === "function") {
-        client.commands.set(command.name, command);
-        logInfo(`✅ Loaded prefix command: ${command.name}`);
-      } else {
-        logWarn(`⚠️ Invalid prefix command file: ${fullPath}`);
+    if (!file.endsWith(".js")) continue;
+
+    const command = require(fullPath);
+
+    if (!command?.name || typeof command.execute !== "function") {
+      logWarn(`⚠️ Invalid prefix command skipped: ${fullPath}`);
+      continue;
+    }
+
+    // main command
+    client.prefixCommands.set(command.name, command);
+
+    // aliases
+    if (Array.isArray(command.aliases)) {
+      for (const alias of command.aliases) {
+        client.prefixCommands.set(alias, command);
       }
     }
+
+    logInfo(`✅ Loaded prefix command: ${command.name}`);
   }
 }
 
 if (fs.existsSync(prefixCommandsPath)) {
   loadPrefixCommands(prefixCommandsPath);
+} else {
+  logWarn("⚠️ Prefix commands folder not found");
 }
 
-/**
- * =========================
- * 🖱 LOAD CONTEXT MENU COMMANDS
- * =========================
- */
+/* =========================
+   🖱 LOAD CONTEXT COMMANDS
+========================= */
 const contextCommandsPath = path.join(__dirname, "commands/context");
-if (fs.existsSync(contextCommandsPath)) {
-  const contextCommandFiles = fs
-    .readdirSync(contextCommandsPath)
-    .filter((file) => file.endsWith(".js"));
 
-  for (const file of contextCommandFiles) {
+if (fs.existsSync(contextCommandsPath)) {
+  for (const file of fs.readdirSync(contextCommandsPath)) {
+    if (!file.endsWith(".js")) continue;
+
     const command = require(path.join(contextCommandsPath, file));
-    if ("data" in command && "execute" in command) {
-      client.commands.set(command.data.name, command);
-    } else {
-      logWarn(`⚠️ Context command ${file} is missing "data" or "execute".`);
+    if (command?.data?.name && typeof command.execute === "function") {
+      client.contextCommands.set(command.data.name, command);
+      logInfo(`✅ Loaded context command: ${command.data.name}`);
     }
   }
 }
 
-/**
- * =========================
- * ⚡ LOAD SLASH COMMANDS
- * =========================
- */
+/* =========================
+   ⚡ LOAD SLASH COMMANDS
+========================= */
 const slashCommandsPath = path.join(__dirname, "commands/slash");
-if (fs.existsSync(slashCommandsPath)) {
-  const commandFolders = fs.readdirSync(slashCommandsPath);
 
-  for (const folder of commandFolders) {
+if (fs.existsSync(slashCommandsPath)) {
+  for (const folder of fs.readdirSync(slashCommandsPath)) {
     const folderPath = path.join(slashCommandsPath, folder);
     if (!fs.statSync(folderPath).isDirectory()) continue;
 
-    const commandFiles = fs
-      .readdirSync(folderPath)
-      .filter((file) => file.endsWith(".js"));
+    for (const file of fs.readdirSync(folderPath)) {
+      if (!file.endsWith(".js")) continue;
 
-    for (const file of commandFiles) {
       const command = require(path.join(folderPath, file));
-
-      if ("data" in command && "execute" in command) {
-        client.commands.set(command.data.name, command);
-      } else {
-        logWarn(`⚠️ Slash command ${file} is missing "data" or "execute".`);
+      if (command?.data?.name && typeof command.execute === "function") {
+        client.slashCommands.set(command.data.name, command);
+        logInfo(`✅ Loaded slash command: ${command.data.name}`);
       }
     }
   }
 }
 
-/**
- * =========================
- * 📡 LOAD EVENTS
- * =========================
- */
+/* =========================
+   📡 LOAD EVENTS
+========================= */
 const eventsPath = path.join(__dirname, "events");
-const eventFiles = fs
-  .readdirSync(eventsPath)
-  .filter((file) => file.endsWith(".js"));
 
-for (const file of eventFiles) {
+for (const file of fs.readdirSync(eventsPath)) {
+  if (!file.endsWith(".js")) continue;
+
   const event = require(path.join(eventsPath, file));
+
+  if (!event?.name || typeof event.execute !== "function") {
+    logWarn(`⚠️ Invalid event skipped: ${file}`);
+    continue;
+  }
 
   if (event.once) {
     client.once(event.name, (...args) => event.execute(...args));
@@ -124,58 +132,28 @@ for (const file of eventFiles) {
   }
 }
 
-/**
- * =========================
- * 🛑 ERROR HANDLING
- * =========================
- */
-client.on("error", (error) => {
-  logError(`❌ Discord client error: ${error}`);
+/* =========================
+   🛑 GLOBAL ERROR HANDLING
+========================= */
+client.on("error", err => logError(err));
+client.on("shardError", err => logError(err));
+
+process.on("uncaughtException", err => {
+  logError(`❌ Uncaught Exception: ${err.stack || err}`);
 });
 
-client.on("shardError", (error) => {
-  logError(`❌ WebSocket error: ${error}`);
-});
-
-client.on("rateLimit", (info) => {
-  logWarn(`⚠️ Rate limit hit: ${JSON.stringify(info)}`);
-});
-
-client.on("guildCreate", (guild) => {
-  const botMember = guild.members.me;
-  if (!botMember) return;
-
-  const missingPermissions = botMember.permissions.missing([
-    "ViewChannel",
-    "SendMessages",
-    "EmbedLinks",
-  ]);
-
-  if (missingPermissions.length > 0) {
-    logWarn(
-      `⚠️ Missing permissions in "${guild.name}": ${missingPermissions.join(
-        ", "
-      )}`
-    );
-  }
-});
-
-// Catch crashes
-process.on("uncaughtException", (error) => {
-  logError(`❌ Uncaught Exception: ${error}`);
-  process.exit(1);
-});
-
-process.on("unhandledRejection", (reason) => {
+process.on("unhandledRejection", reason => {
   logError(`❌ Unhandled Rejection: ${reason}`);
 });
 
-/**
- * =========================
- * 🚀 BOT LOGIN
- * =========================
- */
-client
-  .login(process.env.DISCORD_BOT_TOKEN)
-  .then(() => logInfo("✅ Bot started successfully!"))
-  .catch((err) => logError(`❌ Login failed: ${err}`)); 
+/* =========================
+   🚀 LOGIN
+========================= */
+client.login(process.env.DISCORD_BOT_TOKEN)
+  .then(() => logInfo("✅ Bot logged in successfully"))
+  .catch(err => logError(`❌ Login failed: ${err}`));
+
+/* =========================
+   🔗 EXPORT CLIENT (IMPORTANT)
+========================= */
+module.exports = client;
